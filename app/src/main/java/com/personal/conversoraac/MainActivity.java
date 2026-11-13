@@ -6,53 +6,43 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
-import android.view.Gravity;
-import android.widget.Button;
-import android.widget.LinearLayout;
+import android.view.View;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.arthenica.ffmpegkit.FFmpegKit;
+import com.arthenica.ffmpegkit.FFprobeKit;
+import com.arthenica.ffmpegkit.MediaInformation;
 import com.arthenica.ffmpegkit.ReturnCode;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import java.io.File;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends AppCompatActivity {
 
-    private Button boton;
-    private TextView logView;
+    private MaterialButton btnConvertir;
+    private TextView tvLog;
+    private ScrollView scrollView;
+    private LinearProgressIndicator progressBar;
     private final String CARPETA = "A Voz en Cuello";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(40, 40, 40, 40);
+        btnConvertir = findViewById(R.id.btnConvertir);
+        tvLog = findViewById(R.id.tvLog);
+        scrollView = findViewById(R.id.scrollView);
+        progressBar = findViewById(R.id.progressBar);
 
-        TextView titulo = new TextView(this);
-        titulo.setText("Conversor AAC 64 kbps");
-        titulo.setTextSize(22);
-        titulo.setGravity(Gravity.CENTER);
-        root.addView(titulo);
-
-        boton = new Button(this);
-        boton.setText("Iniciar Conversión");
-        boton.setOnClickListener(v -> verificarEIniciar());
-        root.addView(boton);
-
-        ScrollView scroll = new ScrollView(this);
-        logView = new TextView(this);
-        logView.setTextSize(12);
-        logView.setPadding(0, 20, 0, 20);
-        scroll.addView(logView);
-        root.addView(scroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f));
-
-        setContentView(root);
+        btnConvertir.setOnClickListener(v -> verificarEIniciar());
     }
 
     private void verificarEIniciar() {
@@ -64,8 +54,10 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        boton.setEnabled(false);
-        logView.setText("Iniciando...\n");
+        btnConvertir.setEnabled(false);
+        tvLog.setText("");
+        progressBar.setVisibility(View.VISIBLE);
+        progressBar.setProgress(0);
         new Thread(this::procesarCarpeta).start();
     }
 
@@ -73,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
         File dir = new File(Environment.getExternalStorageDirectory(), CARPETA);
         if (!dir.exists() || !dir.isDirectory()) {
             actualizarLog("❌ No se encontró la carpeta: " + dir.getAbsolutePath());
-            runOnUiThread(() -> boton.setEnabled(true));
+            finalizarUI();
             return;
         }
 
@@ -85,7 +77,6 @@ public class MainActivity extends AppCompatActivity {
 
         for (File archivo : archivos) {
             String nombre = archivo.getName().toLowerCase();
-            // Ignorar si ya es .aac o no es un audio/video soportado
             if (nombre.endsWith(".aac") || !(nombre.endsWith(".mp3") || nombre.endsWith(".mp4") || nombre.endsWith(".m4a") || nombre.endsWith(".wav"))) {
                 continue;
             }
@@ -93,45 +84,79 @@ public class MainActivity extends AppCompatActivity {
             String base = archivo.getName().substring(0, archivo.getName().lastIndexOf("."));
             File salida = new File(dir, base + ".aac");
 
-            // Si ya existe el .aac, lo saltamos para no duplicar
             if (salida.exists() && salida.length() > 0) {
                 actualizarLog("⏭ Saltando (ya existe): " + archivo.getName());
                 continue;
             }
 
-            actualizarLog("🎵 Convirtiendo: " + archivo.getName());
+            actualizarLog("▶ Procesando: " + archivo.getName());
+            runOnUiThread(() -> progressBar.setProgress(0));
 
-            // TU COMANDO EXACTO DE FFMPEG
+            // Obtener duración exacta con FFprobe para calcular el porcentaje
+            long duracionMs = 0;
+            try {
+                MediaInformation info = FFprobeKit.getMediaInformation(archivo.getAbsolutePath()).getMediaInformation();
+                if (info != null && info.getDuration() != null) {
+                    duracionMs = (long) (Double.parseDouble(info.getDuration()) * 1000);
+                }
+            } catch (Exception ignored) {}
+
             String cmd = "-y -i \"" + archivo.getAbsolutePath() + "\" " +
                          "-vn -c:a aac -profile:a aac_low " +
                          "-b:a 64k -minrate 64k -maxrate 64k -bufsize 128k " +
                          "-ar 44100 -ac 2 -f adts \"" + salida.getAbsolutePath() + "\"";
 
-            ReturnCode rc = FFmpegKit.execute(cmd).getReturnCode();
+            AtomicBoolean exito = new AtomicBoolean(false);
+            CountDownLatch latch = new CountDownLatch(1);
+            final long finalDuracionMs = duracionMs;
 
-            if (ReturnCode.isSuccess(rc) && salida.exists() && salida.length() > 0) {
-                actualizarLog("   ✅ OK → Borrando original");
+            // Ejecución Asíncrona con Callback de Progreso
+            FFmpegKit.executeAsync(cmd, session -> {
+                ReturnCode rc = session.getReturnCode();
+                exito.set(ReturnCode.isSuccess(rc));
+                latch.countDown();
+            }, log -> {
+                // Ignoramos el log línea por línea para no saturar la pantalla
+            }, statistics -> {
+                if (finalDuracionMs > 0 && statistics != null && statistics.getTime() >= 0) {
+                    int progreso = (int) ((statistics.getTime() / (double) finalDuracionMs) * 100);
+                    runOnUiThread(() -> progressBar.setProgress(Math.min(progreso, 100)));
+                }
+            });
+
+            try {
+                latch.await(); // Esperar a que termine este archivo antes de seguir
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
+            if (exito.get() && salida.exists() && salida.length() > 0) {
+                actualizarLog("  ✅ Convertido y borrado OK");
                 archivo.delete();
                 convertidos++;
             } else {
-                actualizarLog("   ❌ Falló la conversión (Original intacto)");
+                actualizarLog("  ❌ Error en la conversión");
                 if (salida.exists()) salida.delete();
                 fallidos++;
             }
         }
 
         int c = convertidos; int f = fallidos;
-        actualizarLog("\n🏁 Terminado.\nConvertidos y borrados: " + c + "\nFallidos: " + f);
-        runOnUiThread(() -> boton.setEnabled(true));
+        actualizarLog("\n🏁 Proceso Finalizado.\nConvertidos: " + c + "\nFallidos: " + f);
+        finalizarUI();
+    }
+
+    private void finalizarUI() {
+        runOnUiThread(() -> {
+            btnConvertir.setEnabled(true);
+            progressBar.setVisibility(View.INVISIBLE);
+        });
     }
 
     private void actualizarLog(String msj) {
         runOnUiThread(() -> {
-            logView.append(msj + "\n");
-            // Auto-scroll al final
-            if (logView.getParent() instanceof ScrollView) {
-                ((ScrollView) logView.getParent()).post(() -> ((ScrollView) logView.getParent()).fullScroll(ScrollView.FOCUS_DOWN));
-            }
+            tvLog.append(msj + "\n");
+            scrollView.post(() -> scrollView.fullScroll(ScrollView.FOCUS_DOWN));
         });
     }
 }
