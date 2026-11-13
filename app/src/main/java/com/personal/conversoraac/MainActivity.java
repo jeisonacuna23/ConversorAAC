@@ -100,12 +100,12 @@ public class MainActivity extends AppCompatActivity {
                         StreamInformation audio = streams.get(0);
                         String rate = audio.getSampleRate();
                         String codec = audio.getCodec();
-                        String channels = audio.getChannels();
+                        String channelLayout = audio.getChannelLayout();
                         String br = audio.getBitrate();
                         String dur = info.getDuration();
 
                         String khz = rate != null ? (Integer.parseInt(rate) / 1000.0) + " kHz" : "?";
-                        String chStr = channels != null ? (channels.equals("1") ? "Mono" : "Estéreo") : "?";
+                        String chStr = channelLayout != null ? (channelLayout.toLowerCase().contains("mono") ? "Mono" : (channelLayout.toLowerCase().contains("stereo") ? "Estéreo" : channelLayout)) : "?";
                         String brStr = br != null ? (Integer.parseInt(br) / 1000) + " kbps" : "?";
                         String durStr = "?";
                         if (dur != null) {
