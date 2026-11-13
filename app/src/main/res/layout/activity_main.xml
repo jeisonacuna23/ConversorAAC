@@ -7,7 +7,6 @@
     android:padding="24dp"
     android:background="#F5F5F5">
 
-    <!-- Título profesional -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -25,20 +24,41 @@
         android:textColor="#666666"
         android:layout_marginBottom="24dp"/>
 
-    <!-- Botón principal con icono -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnConvertir"
+    <!-- Fila de botones -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:text="Iniciar Conversión"
-        android:textSize="16sp"
-        app:icon="@android:drawable/ic_media_play"
-        app:iconGravity="textStart"
-        app:iconPadding="12dp"
-        app:cornerRadius="12dp"
-        android:layout_marginBottom="16dp"/>
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
 
-    <!-- Barra de progreso -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAuditar"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_weight="1"
+            android:text="Auditar"
+            android:textSize="16sp"
+            app:icon="@android:drawable/ic_menu_search"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:cornerRadius="12dp"
+            android:layout_marginEnd="8dp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnConvertir"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_weight="1"
+            android:text="Convertir"
+            android:textSize="16sp"
+            app:icon="@android:drawable/ic_media_play"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:cornerRadius="12dp"
+            android:layout_marginStart="8dp"/>
+    </LinearLayout>
+
     <com.google.android.material.progressindicator.LinearProgressIndicator
         android:id="@+id/progressBar"
         android:layout_width="match_parent"
@@ -48,7 +68,6 @@
         android:layout_marginBottom="24dp"
         android:visibility="invisible"/>
 
-    <!-- Tarjeta para el registro de texto -->
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -67,8 +86,8 @@
                 android:id="@+id/tvLog"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Esperando inicio..."
-                android:textSize="14sp"
+                android:text="Esperando acción..."
+                android:textSize="13sp"
                 android:textColor="#444444"
                 android:fontFamily="monospace"/>
         </ScrollView>

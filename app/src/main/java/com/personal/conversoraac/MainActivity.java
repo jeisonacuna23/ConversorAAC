@@ -17,16 +17,18 @@ import com.arthenica.ffmpegkit.FFmpegKit;
 import com.arthenica.ffmpegkit.FFprobeKit;
 import com.arthenica.ffmpegkit.MediaInformation;
 import com.arthenica.ffmpegkit.ReturnCode;
+import com.arthenica.ffmpegkit.StreamInformation;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends AppCompatActivity {
 
-    private MaterialButton btnConvertir;
+    private MaterialButton btnConvertir, btnAuditar;
     private TextView tvLog;
     private ScrollView scrollView;
     private LinearProgressIndicator progressBar;
@@ -38,14 +40,16 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         btnConvertir = findViewById(R.id.btnConvertir);
+        btnAuditar = findViewById(R.id.btnAuditar);
         tvLog = findViewById(R.id.tvLog);
         scrollView = findViewById(R.id.scrollView);
         progressBar = findViewById(R.id.progressBar);
 
-        btnConvertir.setOnClickListener(v -> verificarEIniciar());
+        btnConvertir.setOnClickListener(v -> verificarEIniciar(false));
+        btnAuditar.setOnClickListener(v -> verificarEIniciar(true));
     }
 
-    private void verificarEIniciar() {
+    private void verificarEIniciar(boolean esAuditoria) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
             Toast.makeText(this, "Concede el acceso a archivos primero", Toast.LENGTH_LONG).show();
             Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
@@ -55,16 +59,89 @@ public class MainActivity extends AppCompatActivity {
         }
 
         btnConvertir.setEnabled(false);
+        btnAuditar.setEnabled(false);
         tvLog.setText("");
-        progressBar.setVisibility(View.VISIBLE);
-        progressBar.setProgress(0);
-        new Thread(this::procesarCarpeta).start();
+        
+        if (esAuditoria) {
+            progressBar.setVisibility(View.INVISIBLE);
+            new Thread(this::auditarCarpeta).start();
+        } else {
+            progressBar.setVisibility(View.VISIBLE);
+            progressBar.setProgress(0);
+            new Thread(this::procesarCarpeta).start();
+        }
+    }
+
+    private void auditarCarpeta() {
+        File dir = new File(Environment.getExternalStorageDirectory(), CARPETA);
+        if (!dir.exists() || !dir.isDirectory()) {
+            actualizarLog("No se encontró la carpeta: " + dir.getAbsolutePath());
+            finalizarUI();
+            return;
+        }
+
+        File[] archivos = dir.listFiles();
+        if (archivos == null) return;
+
+        actualizarLog("--- INICIANDO AUDITORÍA ---\n");
+        int malos = 0;
+
+        for (File archivo : archivos) {
+            String nombre = archivo.getName().toLowerCase();
+            if (nombre.endsWith(".aac") || !(nombre.endsWith(".mp3") || nombre.endsWith(".mp4") || nombre.endsWith(".m4a") || nombre.endsWith(".wav"))) {
+                continue;
+            }
+
+            try {
+                MediaInformation info = FFprobeKit.getMediaInformation(archivo.getAbsolutePath()).getMediaInformation();
+                if (info != null) {
+                    List<StreamInformation> streams = info.getStreams();
+                    if (streams != null && !streams.isEmpty()) {
+                        StreamInformation audio = streams.get(0);
+                        String rate = audio.getSampleRate();
+                        String codec = audio.getCodec();
+                        String channels = audio.getChannels();
+                        String br = audio.getBitrate();
+                        String dur = info.getDuration();
+
+                        String khz = rate != null ? (Integer.parseInt(rate) / 1000.0) + " kHz" : "?";
+                        String chStr = channels != null ? (channels.equals("1") ? "Mono" : "Estéreo") : "?";
+                        String brStr = br != null ? (Integer.parseInt(br) / 1000) + " kbps" : "?";
+                        String durStr = "?";
+                        if (dur != null) {
+                            int totalSecs = (int) Double.parseDouble(dur);
+                            durStr = (totalSecs / 60) + ":" + String.format("%02d", totalSecs % 60);
+                        }
+
+                        String alerta = "";
+                        if (!"44100".equals(rate)) {
+                            alerta = "[!] ";
+                            malos++;
+                        }
+
+                        actualizarLog(alerta + archivo.getName() + "\n" +
+                                "   Codec: " + codec + " | " + khz + " | " + chStr + "\n" +
+                                "   Bitrate: " + brStr + " | Dur: " + durStr + "\n");
+                    }
+                }
+            } catch (Exception e) {
+                actualizarLog("Error leyendo: " + archivo.getName());
+            }
+        }
+
+        actualizarLog("--- FIN DE AUDITORÍA ---\n");
+        if (malos > 0) {
+            actualizarLog("ATENCIÓN: " + malos + " archivo(s) no están a 44.1 kHz.\nPueden causar efecto ardilla o voz grave.");
+        } else {
+            actualizarLog("Todos los archivos están a 44.1 kHz. Ningún problema de sample rate.");
+        }
+        finalizarUI();
     }
 
     private void procesarCarpeta() {
         File dir = new File(Environment.getExternalStorageDirectory(), CARPETA);
         if (!dir.exists() || !dir.isDirectory()) {
-            actualizarLog("❌ No se encontró la carpeta: " + dir.getAbsolutePath());
+            actualizarLog("No se encontró la carpeta: " + dir.getAbsolutePath());
             finalizarUI();
             return;
         }
@@ -85,14 +162,13 @@ public class MainActivity extends AppCompatActivity {
             File salida = new File(dir, base + ".aac");
 
             if (salida.exists() && salida.length() > 0) {
-                actualizarLog("⏭ Saltando (ya existe): " + archivo.getName());
+                actualizarLog("Saltando (ya existe): " + archivo.getName());
                 continue;
             }
 
-            actualizarLog("▶ Procesando: " + archivo.getName());
+            actualizarLog("Procesando: " + archivo.getName());
             runOnUiThread(() -> progressBar.setProgress(0));
 
-            // Obtener duración exacta con FFprobe para calcular el porcentaje
             long duracionMs = 0;
             try {
                 MediaInformation info = FFprobeKit.getMediaInformation(archivo.getAbsolutePath()).getMediaInformation();
@@ -110,13 +186,11 @@ public class MainActivity extends AppCompatActivity {
             CountDownLatch latch = new CountDownLatch(1);
             final long finalDuracionMs = duracionMs;
 
-            // Ejecución Asíncrona con Callback de Progreso
             FFmpegKit.executeAsync(cmd, session -> {
                 ReturnCode rc = session.getReturnCode();
                 exito.set(ReturnCode.isSuccess(rc));
                 latch.countDown();
             }, log -> {
-                // Ignoramos el log línea por línea para no saturar la pantalla
             }, statistics -> {
                 if (finalDuracionMs > 0 && statistics != null && statistics.getTime() >= 0) {
                     int progreso = (int) ((statistics.getTime() / (double) finalDuracionMs) * 100);
@@ -125,30 +199,31 @@ public class MainActivity extends AppCompatActivity {
             });
 
             try {
-                latch.await(); // Esperar a que termine este archivo antes de seguir
+                latch.await();
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
 
             if (exito.get() && salida.exists() && salida.length() > 0) {
-                actualizarLog("  ✅ Convertido y borrado OK");
+                actualizarLog("  Convertido y borrado OK");
                 archivo.delete();
                 convertidos++;
             } else {
-                actualizarLog("  ❌ Error en la conversión");
+                actualizarLog("  Error en la conversión");
                 if (salida.exists()) salida.delete();
                 fallidos++;
             }
         }
 
         int c = convertidos; int f = fallidos;
-        actualizarLog("\n🏁 Proceso Finalizado.\nConvertidos: " + c + "\nFallidos: " + f);
+        actualizarLog("\nProceso Finalizado.\nConvertidos: " + c + "\nFallidos: " + f);
         finalizarUI();
     }
 
     private void finalizarUI() {
         runOnUiThread(() -> {
             btnConvertir.setEnabled(true);
+            btnAuditar.setEnabled(true);
             progressBar.setVisibility(View.INVISIBLE);
         });
     }
