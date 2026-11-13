@@ -109,7 +109,7 @@ public class MainActivity extends AppCompatActivity {
 
             ReturnCode rc = FFmpegKit.execute(cmd).getReturnCode();
 
-            if (rc.isSuccess() && salida.exists() && salida.length() > 0) {
+            if (ReturnCode.isSuccess(rc) && salida.exists() && salida.length() > 0) {
                 actualizarLog("   ✅ OK → Borrando original");
                 archivo.delete();
                 convertidos++;
