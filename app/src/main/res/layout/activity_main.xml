@@ -5,26 +5,36 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="24dp"
-    android:background="#F5F5F5">
+    android:background="@color/retroLight">
+
+    <ImageView
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:src="@drawable/logo_aac" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Conversor AAC"
-        android:textSize="28sp"
+        android:text="CONVERSOR AAC"
+        android:textSize="34sp"
+        android:fontFamily="@font/vt323"
         android:textStyle="bold"
-        android:textColor="#333333"
+        android:textColor="@color/retroBrown"
+        android:gravity="center"
         android:layout_marginBottom="8dp"/>
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="AAC-LC • 64 kbps • 44.1 kHz • Estéreo"
-        android:textSize="14sp"
-        android:textColor="#666666"
+        android:text="64 kbps • 44.1 kHz • Estéreo"
+        android:textSize="20sp"
+        android:fontFamily="@font/vt323"
+        android:textColor="@color/retroBrown"
+        android:gravity="center"
         android:layout_marginBottom="24dp"/>
 
-    <!-- Fila de botones -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -37,13 +47,14 @@
             android:layout_height="60dp"
             android:layout_weight="1"
             android:text="Auditar"
-            android:textSize="16sp"
+            android:fontFamily="@font/vt323"
+            android:textSize="20sp"
             app:icon="@android:drawable/ic_menu_search"
             app:iconGravity="textStart"
-            app:iconPadding="8dp"
             app:cornerRadius="12dp"
             android:layout_marginEnd="8dp"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"/>
+            app:backgroundTint="@color/retroBrown"
+            android:textColor="@color/retroYellow"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnConvertir"
@@ -51,12 +62,14 @@
             android:layout_height="60dp"
             android:layout_weight="1"
             android:text="Convertir"
-            android:textSize="16sp"
+            android:fontFamily="@font/vt323"
+            android:textSize="20sp"
             app:icon="@android:drawable/ic_media_play"
             app:iconGravity="textStart"
-            app:iconPadding="8dp"
             app:cornerRadius="12dp"
-            android:layout_marginStart="8dp"/>
+            android:layout_marginStart="8dp"
+            app:backgroundTint="@color/retroYellow"
+            android:textColor="@color/retroBrown"/>
     </LinearLayout>
 
     <com.google.android.material.progressindicator.LinearProgressIndicator
@@ -65,6 +78,7 @@
         android:layout_height="wrap_content"
         android:indeterminate="false"
         app:trackCornerRadius="4dp"
+        app:indicatorColor="@color/retroBrown"
         android:layout_marginBottom="24dp"
         android:visibility="invisible"/>
 
@@ -73,8 +87,8 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         app:cardCornerRadius="12dp"
-        app:cardElevation="2dp"
-        app:cardBackgroundColor="#FFFFFF">
+        app:cardElevation="4dp"
+        app:cardBackgroundColor="@color/retroBrown">
 
         <ScrollView
             android:id="@+id/scrollView"
@@ -87,10 +101,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Esperando acción..."
-                android:textSize="13sp"
-                android:textColor="#444444"
-                android:fontFamily="monospace"/>
+                android:textSize="18sp"
+                android:textColor="@color/retroYellow"
+                android:fontFamily="@font/vt323"/>
         </ScrollView>
     </com.google.android.material.card.MaterialCardView>
-
 </LinearLayout>
