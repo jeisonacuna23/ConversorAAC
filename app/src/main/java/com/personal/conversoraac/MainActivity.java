@@ -57,7 +57,6 @@ public class MainActivity extends AppCompatActivity {
     private boolean estaGrabando = false;
     private String nombreGrabacionFinal;
 
-    // Escucha los mensajes que envía el Servicio (tiempo y finalización)
     private BroadcastReceiver serviceReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -92,11 +91,38 @@ public class MainActivity extends AppCompatActivity {
         btnAuditar.setOnClickListener(v -> verificarEIniciar(true));
         btnGrabar.setOnClickListener(v -> toggleGrabacion());
 
-        // Registrar el receptor para Android 13+ y anteriores
         IntentFilter filter = new IntentFilter();
         filter.addAction(RecordingService.ACTION_UPDATE_UI);
         filter.addAction(RecordingService.ACTION_FINISHED);
         ContextCompat.registerReceiver(this, serviceReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Sincronizar la UI si el servicio está grabando en segundo plano
+        if (RecordingService.isRunning) {
+            estaGrabando = true;
+            nombreGrabacionFinal = RecordingService.currentName;
+            tvRecordingName.setText(nombreGrabacionFinal);
+            tvTimer.setText(RecordingService.currentTime);
+            
+            btnGrabar.setText("Detener Grabación");
+            btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_stop));
+            btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroYellow));
+            btnGrabar.setTextColor(ContextCompat.getColor(this, R.color.retroBrown));
+            
+            btnConvertir.setEnabled(false);
+            btnAuditar.setEnabled(false);
+            
+            recordingPanel.setVisibility(View.VISIBLE);
+            recordingDot.startAnimation(AnimationUtils.loadAnimation(this, R.anim.pulse));
+        } else {
+            if (estaGrabando) {
+                // Si ya no está corriendo pero la UI creía que sí, restauramos
+                finalizarGrabacionUI();
+            }
+        }
     }
 
     @Override
@@ -105,15 +131,12 @@ public class MainActivity extends AppCompatActivity {
         unregisterReceiver(serviceReceiver);
     }
 
-    // --- LÓGICA DE GRABACIÓN ---
-
     private void toggleGrabacion() {
         if (!estaGrabando) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, 101);
                 return;
             }
-            // Pedir permiso de notificaciones si es Android 13+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 102);
                 return;
@@ -170,7 +193,6 @@ public class MainActivity extends AppCompatActivity {
         tvRecordingName.setText(nombreGrabacionFinal);
         recordingDot.startAnimation(AnimationUtils.loadAnimation(this, R.anim.pulse));
 
-        // Enviar la orden de START al servicio
         Intent serviceIntent = new Intent(this, RecordingService.class);
         serviceIntent.setAction(RecordingService.ACTION_START);
         serviceIntent.putExtra(RecordingService.EXTRA_NAME, nombreGrabacionFinal);
@@ -180,7 +202,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void detenerGrabacionUI() {
-        // Enviar la orden de STOP al servicio
         Intent serviceIntent = new Intent(this, RecordingService.class);
         serviceIntent.setAction(RecordingService.ACTION_STOP);
         startService(serviceIntent);
@@ -188,7 +209,7 @@ public class MainActivity extends AppCompatActivity {
         actualizarLog("[STOP] Deteniendo y procesando...");
         recordingDot.clearAnimation();
         recordingPanel.setVisibility(View.GONE);
-        progressBar.setVisibility(View.VISIBLE); // Mostrar barra mientras FFmpeg procesa
+        progressBar.setVisibility(View.VISIBLE);
     }
 
     private void finalizarGrabacionUI() {
@@ -209,7 +230,7 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == 101 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             mostrarDialogoNombre();
         } else if (requestCode == 102) {
-            mostrarDialogoNombre(); // Continuar aunque niegue las notificaciones
+            mostrarDialogoNombre();
         } else if (requestCode == 101) {
             Toast.makeText(this, "Se necesita permiso de micrófono", Toast.LENGTH_SHORT).show();
         }

@@ -38,6 +38,11 @@ public class RecordingService extends Service {
     private static final String CHANNEL_ID = "GrabacionChannel";
     private static final int NOTIFICATION_ID = 1;
 
+    // Variables estáticas para saber el estado desde la pantalla principal
+    public static boolean isRunning = false;
+    public static String currentName = "";
+    public static String currentTime = "00:00";
+
     private MediaRecorder recorder;
     private File archivoTemporal;
     private String nombreGrabacion;
@@ -55,10 +60,10 @@ public class RecordingService extends Service {
             seconds = seconds % 60;
             String timeStr = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
 
-            // Actualizar notificación
+            currentTime = timeStr; // Guardar tiempo para la UI
+
             updateNotification(timeStr);
 
-            // Avisar a la pantalla principal
             Intent intent = new Intent(ACTION_UPDATE_UI);
             intent.putExtra(EXTRA_TIME, timeStr);
             sendBroadcast(intent);
@@ -99,6 +104,10 @@ public class RecordingService extends Service {
             recorder.start();
 
             isRecording = true;
+            isRunning = true;       // <-- Indicar que está corriendo
+            currentName = nombreGrabacion;
+            currentTime = "00:00";
+
             tiempoInicio = System.currentTimeMillis();
             handler.postDelayed(timerRunnable, 0);
 
@@ -109,6 +118,7 @@ public class RecordingService extends Service {
 
     private void detenerGrabacionYProcesar() {
         isRecording = false;
+        isRunning = false; // <-- Indicar que ya no está corriendo
         handler.removeCallbacks(timerRunnable);
 
         try {
@@ -118,7 +128,6 @@ public class RecordingService extends Service {
 
         updateNotification("Procesando...");
 
-        // Iniciar conversión FFmpeg en un hilo secundario
         new Thread(() -> {
             File dir = new File(Environment.getExternalStorageDirectory(), "A Voz en Cuello");
             if (!dir.exists()) dir.mkdirs();
@@ -147,14 +156,12 @@ public class RecordingService extends Service {
                 msgFinal = "[ERROR] Error al convertir la grabación.";
             }
 
-            // Avisar a la pantalla que terminó
             Intent intent = new Intent(ACTION_FINISHED);
             intent.putExtra(EXTRA_MESSAGE, msgFinal);
             sendBroadcast(intent);
 
             stopForeground(true);
             stopSelf();
-
         }).start();
     }
 
@@ -175,6 +182,7 @@ public class RecordingService extends Service {
         PendingIntent stopPendingIntent = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE);
 
         Intent openAppIntent = new Intent(this, MainActivity.class);
+        openAppIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openAppPendingIntent = PendingIntent.getActivity(this, 0, openAppIntent, PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -182,7 +190,8 @@ public class RecordingService extends Service {
                 .setContentText("Tiempo: " + time)
                 .setSmallIcon(R.drawable.ic_fa_mic)
                 .setContentIntent(openAppPendingIntent)
-                .addAction(0, "Detener", stopPendingIntent)
+                .addAction(R.drawable.ic_fa_stop, "Detener", stopPendingIntent) // Icono de stop
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Visible en pantalla de bloqueo
                 .setOngoing(true)
                 .build();
     }
