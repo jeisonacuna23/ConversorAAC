@@ -3,6 +3,8 @@ package com.personal.conversoraac;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
@@ -11,9 +13,10 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.animation.AnimationUtils;
-import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -32,6 +35,7 @@ import com.arthenica.ffmpegkit.StreamInformation;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
+import com.google.android.material.textfield.TextInputEditText;
 
 import java.io.File;
 import java.io.IOException;
@@ -108,23 +112,34 @@ public class MainActivity extends AppCompatActivity {
 
     private void mostrarDialogoNombre() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Nombre de la grabación");
-        
-        final EditText input = new EditText(this);
-        String defaultName = "Grabacion_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-        input.setText(defaultName);
-        input.setSelection(defaultName.length());
-        builder.setView(input);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_name, null);
+        builder.setView(view);
 
-        builder.setPositiveButton("Grabar", (dialog, which) -> {
-            String name = input.getText().toString().trim();
+        AlertDialog dialog = builder.create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            dialog.getWindow().setDimAmount(0.7f); // Fondo más oscuro
+        }
+
+        TextInputEditText etNombre = view.findViewById(R.id.etNombre);
+        MaterialButton btnCancelar = view.findViewById(R.id.btnCancelar);
+        MaterialButton btnGrabarConfirmar = view.findViewById(R.id.btnGrabarConfirmar);
+
+        String defaultName = "Grabacion_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        etNombre.setText(defaultName);
+        etNombre.setSelection(defaultName.length());
+
+        btnCancelar.setOnClickListener(v -> dialog.dismiss());
+
+        btnGrabarConfirmar.setOnClickListener(v -> {
+            String name = etNombre.getText() != null ? etNombre.getText().toString().trim() : "";
             if (name.isEmpty()) name = defaultName;
-            // Limpiamos el nombre para evitar caracteres inválidos en archivos
             nombreGrabacionFinal = name.replaceAll("[^a-zA-Z0-9_\\-\\s]", "");
+            dialog.dismiss();
             iniciarGrabacion();
         });
-        builder.setNegativeButton("Cancelar", null);
-        builder.show();
+
+        dialog.show();
     }
 
     private void iniciarGrabacion() {
@@ -159,6 +174,9 @@ public class MainActivity extends AppCompatActivity {
             tiempoInicioGrabacion = System.currentTimeMillis();
             timerHandler.postDelayed(timerRunnable, 0);
             
+            // MANTENER LA PANTALLA ENCENDIDA MIENTRAS GRABA
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            
             actualizarLog("[REC] Grabando: " + nombreGrabacionFinal);
         } catch (IOException | IllegalStateException e) {
             actualizarLog("[ERROR] Error al iniciar grabador: " + e.getMessage());
@@ -184,6 +202,9 @@ public class MainActivity extends AppCompatActivity {
             btnConvertir.setEnabled(true);
             btnAuditar.setEnabled(true);
             actualizarLog("[STOP] Grabación detenida. Procesando formato de radio...");
+            
+            // LIBERAR LA PANTALLA PARA QUE SE PUEDA APAGAR NORMALMENTE
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             
             new Thread(this::procesarGrabacion).start();
             
