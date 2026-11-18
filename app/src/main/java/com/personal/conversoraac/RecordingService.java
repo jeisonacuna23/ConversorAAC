@@ -22,23 +22,20 @@ import com.arthenica.ffmpegkit.ReturnCode;
 import java.io.File;
 import java.io.IOException;
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class RecordingService extends Service {
 
     public static final String ACTION_START = "ACTION_START";
     public static final String ACTION_STOP = "ACTION_STOP";
-    public static final String ACTION_UPDATE_UI = "ACTION_UPDATE_UI";
     public static final String ACTION_FINISHED = "ACTION_FINISHED";
     public static final String EXTRA_NAME = "EXTRA_NAME";
-    public static final String EXTRA_TIME = "EXTRA_TIME";
     public static final String EXTRA_MESSAGE = "EXTRA_MESSAGE";
 
     private static final String CHANNEL_ID = "GrabacionChannel";
     private static final int NOTIFICATION_ID = 1;
 
     public static boolean isRunning = false;
+    public static boolean isProcessing = false; // Bandera para evitar doble stop
     public static String currentName = "";
     public static String currentTime = "00:00";
 
@@ -57,16 +54,9 @@ public class RecordingService extends Service {
             int seconds = (int) (millis / 1000);
             int minutes = seconds / 60;
             seconds = seconds % 60;
-            String timeStr = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
+            currentTime = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
 
-            currentTime = timeStr;
-
-            updateNotification(timeStr);
-
-            Intent intent = new Intent(ACTION_UPDATE_UI);
-            intent.putExtra(EXTRA_TIME, timeStr);
-            sendBroadcast(intent);
-
+            updateNotification(currentTime);
             handler.postDelayed(this, 1000);
         }
     };
@@ -78,7 +68,9 @@ public class RecordingService extends Service {
                 nombreGrabacion = intent.getStringExtra(EXTRA_NAME);
                 iniciarGrabacion();
             } else if (intent.getAction().equals(ACTION_STOP)) {
-                detenerGrabacionYProcesar();
+                if (!isProcessing) {
+                    detenerGrabacionYProcesar();
+                }
             }
         }
         return START_NOT_STICKY;
@@ -104,6 +96,7 @@ public class RecordingService extends Service {
 
             isRecording = true;
             isRunning = true;
+            isProcessing = false;
             currentName = nombreGrabacion;
             currentTime = "00:00";
 
@@ -118,11 +111,15 @@ public class RecordingService extends Service {
     private void detenerGrabacionYProcesar() {
         isRecording = false;
         isRunning = false;
+        isProcessing = true;
         handler.removeCallbacks(timerRunnable);
 
         try {
-            recorder.stop();
-            recorder.release();
+            if (recorder != null) {
+                recorder.stop();
+                recorder.release();
+                recorder = null;
+            }
         } catch (Exception ignored) {}
 
         updateNotification("Procesando...");
@@ -137,18 +134,12 @@ public class RecordingService extends Service {
                          "-b:a 64k -minrate 64k -maxrate 64k -bufsize 128k " +
                          "-ar 44100 -ac 2 -f adts \"" + archivoFinal.getAbsolutePath() + "\"";
 
-            AtomicBoolean exito = new AtomicBoolean(false);
-            CountDownLatch latch = new CountDownLatch(1);
-
-            FFmpegKit.executeAsync(cmd, session -> {
-                exito.set(ReturnCode.isSuccess(session.getReturnCode()));
-                latch.countDown();
-            }, log -> {}, statistics -> {});
-
-            try { latch.await(); } catch (InterruptedException ignored) {}
+            // Usamos execute() síncrono dentro del hilo para evitar fallos de callbacks
+            ReturnCode rc = FFmpegKit.execute(cmd).getReturnCode();
+            boolean exito = ReturnCode.isSuccess(rc) && archivoFinal.exists() && archivoFinal.length() > 0;
 
             String msgFinal;
-            if (exito.get() && archivoFinal.exists() && archivoFinal.length() > 0) {
+            if (exito) {
                 msgFinal = "[OK] Grabación lista: " + archivoFinal.getName();
                 archivoTemporal.delete();
             } else {
@@ -159,6 +150,7 @@ public class RecordingService extends Service {
             intent.putExtra(EXTRA_MESSAGE, msgFinal);
             sendBroadcast(intent);
 
+            isProcessing = false;
             stopForeground(true);
             stopSelf();
         }).start();
@@ -170,7 +162,6 @@ public class RecordingService extends Service {
                     CHANNEL_ID, "Grabación en curso",
                     NotificationManager.IMPORTANCE_LOW
             );
-            // Forzar visibilidad en pantalla de bloqueo para el canal
             serviceChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(serviceChannel);
@@ -192,13 +183,11 @@ public class RecordingService extends Service {
                 .setSmallIcon(R.drawable.ic_fa_mic)
                 .setContentIntent(openAppPendingIntent)
                 .addAction(R.drawable.ic_fa_stop, "Detener", stopPendingIntent)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Visible en bloqueo
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW); // Prioridad baja pero con acciones
+                .setPriority(NotificationCompat.PRIORITY_LOW);
 
-        // Forzar que la notificación se muestre expandida para que el botón sea visible
         builder.setStyle(new NotificationCompat.BigTextStyle().bigText("Tiempo: " + time + " - Pulsa Detener para finalizar."));
-
         return builder.build();
     }
 

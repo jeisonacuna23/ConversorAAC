@@ -12,6 +12,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -57,15 +59,33 @@ public class MainActivity extends AppCompatActivity {
     private boolean estaGrabando = false;
     private String nombreGrabacionFinal;
 
+    // Handler para verificar el estado constantemente (Polling)
+    private Handler uiHandler = new Handler(Looper.getMainLooper());
+    private Runnable statusChecker = new Runnable() {
+        @Override
+        public void run() {
+            if (estaGrabando) {
+                if (RecordingService.isRunning) {
+                    tvTimer.setText(RecordingService.currentTime);
+                } else if (RecordingService.isProcessing) {
+                    // El servicio está procesando con FFmpeg
+                    tvRecordingName.setText("Procesando audio...");
+                } else {
+                    // El servicio terminó y no envió broadcast (o ya se procesó)
+                    actualizarLog("[INFO] Proceso finalizado en segundo plano.");
+                    finalizarGrabacionUI();
+                }
+            }
+            uiHandler.postDelayed(this, 500); // Revisar cada medio segundo
+        }
+    };
+
     private BroadcastReceiver serviceReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (RecordingService.ACTION_UPDATE_UI.equals(intent.getAction())) {
-                String time = intent.getStringExtra(RecordingService.EXTRA_TIME);
-                tvTimer.setText(time);
-            } else if (RecordingService.ACTION_FINISHED.equals(intent.getAction())) {
+            if (RecordingService.ACTION_FINISHED.equals(intent.getAction())) {
                 String msg = intent.getStringExtra(RecordingService.EXTRA_MESSAGE);
-                actualizarLog(msg);
+                if (msg != null) actualizarLog(msg);
                 finalizarGrabacionUI();
             }
         }
@@ -91,17 +111,16 @@ public class MainActivity extends AppCompatActivity {
         btnAuditar.setOnClickListener(v -> verificarEIniciar(true));
         btnGrabar.setOnClickListener(v -> toggleGrabacion());
 
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(RecordingService.ACTION_UPDATE_UI);
-        filter.addAction(RecordingService.ACTION_FINISHED);
+        IntentFilter filter = new IntentFilter(RecordingService.ACTION_FINISHED);
         ContextCompat.registerReceiver(this, serviceReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        uiHandler.post(statusChecker); // Iniciar el verificador
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Sincronizar la UI si el servicio está grabando en segundo plano
-        if (RecordingService.isRunning) {
+        if (RecordingService.isRunning || RecordingService.isProcessing) {
             estaGrabando = true;
             nombreGrabacionFinal = RecordingService.currentName;
             tvRecordingName.setText(nombreGrabacionFinal);
@@ -114,13 +133,10 @@ public class MainActivity extends AppCompatActivity {
             
             btnConvertir.setEnabled(false);
             btnAuditar.setEnabled(false);
-            
             recordingPanel.setVisibility(View.VISIBLE);
-            recordingDot.startAnimation(AnimationUtils.loadAnimation(this, R.anim.pulse));
-        } else {
-            if (estaGrabando) {
-                // Si ya no está corriendo pero la UI creía que sí, restauramos
-                finalizarGrabacionUI();
+            
+            if (RecordingService.isRunning) {
+                recordingDot.startAnimation(AnimationUtils.loadAnimation(this, R.anim.pulse));
             }
         }
     }
@@ -129,6 +145,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(serviceReceiver);
+        uiHandler.removeCallbacks(statusChecker);
     }
 
     private void toggleGrabacion() {
@@ -143,6 +160,9 @@ public class MainActivity extends AppCompatActivity {
             }
             mostrarDialogoNombre();
         } else {
+            // Deshabilitar botón inmediatamente para evitar doble toque (crash)
+            btnGrabar.setEnabled(false);
+            btnGrabar.setText("Deteniendo...");
             detenerGrabacionUI();
         }
     }
@@ -208,12 +228,13 @@ public class MainActivity extends AppCompatActivity {
         
         actualizarLog("[STOP] Deteniendo y procesando...");
         recordingDot.clearAnimation();
-        recordingPanel.setVisibility(View.GONE);
-        progressBar.setVisibility(View.VISIBLE);
+        // No ocultamos el panel de inmediato para que el polling muestre "Procesando..."
+        progressBar.setVisibility(View.VISIBLE); 
     }
 
     private void finalizarGrabacionUI() {
         estaGrabando = false;
+        btnGrabar.setEnabled(true);
         btnGrabar.setText("Iniciar Grabación");
         btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_mic));
         btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroBrown));
@@ -222,18 +243,7 @@ public class MainActivity extends AppCompatActivity {
         btnConvertir.setEnabled(true);
         btnAuditar.setEnabled(true);
         progressBar.setVisibility(View.INVISIBLE);
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 101 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            mostrarDialogoNombre();
-        } else if (requestCode == 102) {
-            mostrarDialogoNombre();
-        } else if (requestCode == 101) {
-            Toast.makeText(this, "Se necesita permiso de micrófono", Toast.LENGTH_SHORT).show();
-        }
+        recordingPanel.setVisibility(View.GONE);
     }
 
     // --- LÓGICA DE AUDITORÍA Y CONVERSIÓN (Igual que antes) ---
