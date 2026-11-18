@@ -1,21 +1,20 @@
 package com.personal.conversoraac;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
-import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.WindowManager;
 import android.view.animation.AnimationUtils;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -38,7 +37,6 @@ import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.textfield.TextInputEditText;
 
 import java.io.File;
-import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -56,22 +54,21 @@ public class MainActivity extends AppCompatActivity {
     private View recordingDot;
     private final String CARPETA = "A Voz en Cuello";
 
-    private MediaRecorder recorder;
-    private File archivoTemporal;
-    private String nombreGrabacionFinal;
     private boolean estaGrabando = false;
+    private String nombreGrabacionFinal;
 
-    private Handler timerHandler = new Handler(Looper.getMainLooper());
-    private long tiempoInicioGrabacion = 0;
-    private Runnable timerRunnable = new Runnable() {
+    // Escucha los mensajes que envía el Servicio (tiempo y finalización)
+    private BroadcastReceiver serviceReceiver = new BroadcastReceiver() {
         @Override
-        public void run() {
-            long millis = System.currentTimeMillis() - tiempoInicioGrabacion;
-            int seconds = (int) (millis / 1000);
-            int minutes = seconds / 60;
-            seconds = seconds % 60;
-            tvTimer.setText(String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds));
-            timerHandler.postDelayed(this, 500);
+        public void onReceive(Context context, Intent intent) {
+            if (RecordingService.ACTION_UPDATE_UI.equals(intent.getAction())) {
+                String time = intent.getStringExtra(RecordingService.EXTRA_TIME);
+                tvTimer.setText(time);
+            } else if (RecordingService.ACTION_FINISHED.equals(intent.getAction())) {
+                String msg = intent.getStringExtra(RecordingService.EXTRA_MESSAGE);
+                actualizarLog(msg);
+                finalizarGrabacionUI();
+            }
         }
     };
 
@@ -94,6 +91,18 @@ public class MainActivity extends AppCompatActivity {
         btnConvertir.setOnClickListener(v -> verificarEIniciar(false));
         btnAuditar.setOnClickListener(v -> verificarEIniciar(true));
         btnGrabar.setOnClickListener(v -> toggleGrabacion());
+
+        // Registrar el receptor para Android 13+ y anteriores
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(RecordingService.ACTION_UPDATE_UI);
+        filter.addAction(RecordingService.ACTION_FINISHED);
+        ContextCompat.registerReceiver(this, serviceReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        unregisterReceiver(serviceReceiver);
     }
 
     // --- LÓGICA DE GRABACIÓN ---
@@ -104,9 +113,14 @@ public class MainActivity extends AppCompatActivity {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, 101);
                 return;
             }
+            // Pedir permiso de notificaciones si es Android 13+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 102);
+                return;
+            }
             mostrarDialogoNombre();
         } else {
-            detenerGrabacion();
+            detenerGrabacionUI();
         }
     }
 
@@ -118,7 +132,7 @@ public class MainActivity extends AppCompatActivity {
         AlertDialog dialog = builder.create();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            dialog.getWindow().setDimAmount(0.7f); // Fondo más oscuro
+            dialog.getWindow().setDimAmount(0.7f);
         }
 
         TextInputEditText etNombre = view.findViewById(R.id.etNombre);
@@ -136,116 +150,57 @@ public class MainActivity extends AppCompatActivity {
             if (name.isEmpty()) name = defaultName;
             nombreGrabacionFinal = name.replaceAll("[^a-zA-Z0-9_\\-\\s]", "");
             dialog.dismiss();
-            iniciarGrabacion();
+            iniciarGrabacionUI();
         });
 
         dialog.show();
     }
 
-    private void iniciarGrabacion() {
-        archivoTemporal = new File(getCacheDir(), "temp_grabacion.m4a");
-
-        recorder = new MediaRecorder();
-        try {
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            recorder.setAudioSamplingRate(44100);
-            recorder.setAudioChannels(2);
-            recorder.setAudioEncodingBitRate(128000);
-            recorder.setOutputFile(archivoTemporal.getAbsolutePath());
-            
-            recorder.prepare();
-            recorder.start();
-            
-            estaGrabando = true;
-            btnGrabar.setText("Detener Grabación");
-            btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_stop));
-            btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroYellow));
-            btnGrabar.setTextColor(ContextCompat.getColor(this, R.color.retroBrown));
-            
-            btnConvertir.setEnabled(false);
-            btnAuditar.setEnabled(false);
-            
-            recordingPanel.setVisibility(View.VISIBLE);
-            tvRecordingName.setText(nombreGrabacionFinal);
-            recordingDot.startAnimation(AnimationUtils.loadAnimation(this, R.anim.pulse));
-            
-            tiempoInicioGrabacion = System.currentTimeMillis();
-            timerHandler.postDelayed(timerRunnable, 0);
-            
-            // MANTENER LA PANTALLA ENCENDIDA MIENTRAS GRABA
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            
-            actualizarLog("[REC] Grabando: " + nombreGrabacionFinal);
-        } catch (IOException | IllegalStateException e) {
-            actualizarLog("[ERROR] Error al iniciar grabador: " + e.getMessage());
-        }
-    }
-
-    private void detenerGrabacion() {
-        try {
-            recorder.stop();
-            recorder.release();
-            recorder = null;
-            estaGrabando = false;
-            
-            timerHandler.removeCallbacks(timerRunnable);
-            recordingDot.clearAnimation();
-            recordingPanel.setVisibility(View.GONE);
-            
-            btnGrabar.setText("Iniciar Grabación");
-            btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_mic));
-            btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroBrown));
-            btnGrabar.setTextColor(ContextCompat.getColor(this, R.color.retroYellow));
-            
-            btnConvertir.setEnabled(true);
-            btnAuditar.setEnabled(true);
-            actualizarLog("[STOP] Grabación detenida. Procesando formato de radio...");
-            
-            // LIBERAR LA PANTALLA PARA QUE SE PUEDA APAGAR NORMALMENTE
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            
-            new Thread(this::procesarGrabacion).start();
-            
-        } catch (RuntimeException e) {
-            actualizarLog("[ERROR] Error al detener grabación: " + e.getMessage());
-            estaGrabando = false;
-            btnGrabar.setText("Iniciar Grabación");
-        }
-    }
-
-    private void procesarGrabacion() {
-        File dir = new File(Environment.getExternalStorageDirectory(), CARPETA);
-        if (!dir.exists()) dir.mkdirs();
-
-        File archivoFinal = new File(dir, nombreGrabacionFinal + ".aac");
-
-        runOnUiThread(() -> progressBar.setVisibility(View.VISIBLE));
-
-        String cmd = "-y -i \"" + archivoTemporal.getAbsolutePath() + "\" " +
-                     "-vn -c:a aac -profile:a aac_low " +
-                     "-b:a 64k -minrate 64k -maxrate 64k -bufsize 128k " +
-                     "-ar 44100 -ac 2 -f adts \"" + archivoFinal.getAbsolutePath() + "\"";
-
-        AtomicBoolean exito = new AtomicBoolean(false);
-        CountDownLatch latch = new CountDownLatch(1);
-
-        FFmpegKit.executeAsync(cmd, session -> {
-            exito.set(ReturnCode.isSuccess(session.getReturnCode()));
-            latch.countDown();
-        }, log -> {}, statistics -> {});
-
-        try { latch.await(); } catch (InterruptedException ignored) {}
-
-        if (exito.get() && archivoFinal.exists() && archivoFinal.length() > 0) {
-            actualizarLog("[OK] Grabación lista y guardada como: " + archivoFinal.getName());
-            archivoTemporal.delete();
-        } else {
-            actualizarLog("[ERROR] Error al convertir la grabación.");
-        }
+    private void iniciarGrabacionUI() {
+        estaGrabando = true;
+        btnGrabar.setText("Detener Grabación");
+        btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_stop));
+        btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroYellow));
+        btnGrabar.setTextColor(ContextCompat.getColor(this, R.color.retroBrown));
         
-        runOnUiThread(() -> progressBar.setVisibility(View.INVISIBLE));
+        btnConvertir.setEnabled(false);
+        btnAuditar.setEnabled(false);
+        
+        recordingPanel.setVisibility(View.VISIBLE);
+        tvRecordingName.setText(nombreGrabacionFinal);
+        recordingDot.startAnimation(AnimationUtils.loadAnimation(this, R.anim.pulse));
+
+        // Enviar la orden de START al servicio
+        Intent serviceIntent = new Intent(this, RecordingService.class);
+        serviceIntent.setAction(RecordingService.ACTION_START);
+        serviceIntent.putExtra(RecordingService.EXTRA_NAME, nombreGrabacionFinal);
+        ContextCompat.startForegroundService(this, serviceIntent);
+        
+        actualizarLog("[REC] Grabando: " + nombreGrabacionFinal);
+    }
+
+    private void detenerGrabacionUI() {
+        // Enviar la orden de STOP al servicio
+        Intent serviceIntent = new Intent(this, RecordingService.class);
+        serviceIntent.setAction(RecordingService.ACTION_STOP);
+        startService(serviceIntent);
+        
+        actualizarLog("[STOP] Deteniendo y procesando...");
+        recordingDot.clearAnimation();
+        recordingPanel.setVisibility(View.GONE);
+        progressBar.setVisibility(View.VISIBLE); // Mostrar barra mientras FFmpeg procesa
+    }
+
+    private void finalizarGrabacionUI() {
+        estaGrabando = false;
+        btnGrabar.setText("Iniciar Grabación");
+        btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_mic));
+        btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroBrown));
+        btnGrabar.setTextColor(ContextCompat.getColor(this, R.color.retroYellow));
+        
+        btnConvertir.setEnabled(true);
+        btnAuditar.setEnabled(true);
+        progressBar.setVisibility(View.INVISIBLE);
     }
 
     @Override
@@ -253,12 +208,14 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 101 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             mostrarDialogoNombre();
-        } else {
-            Toast.makeText(this, "Se necesita permiso de micrófono para grabar", Toast.LENGTH_SHORT).show();
+        } else if (requestCode == 102) {
+            mostrarDialogoNombre(); // Continuar aunque niegue las notificaciones
+        } else if (requestCode == 101) {
+            Toast.makeText(this, "Se necesita permiso de micrófono", Toast.LENGTH_SHORT).show();
         }
     }
 
-    // --- LÓGICA DE AUDITORÍA Y CONVERSIÓN ---
+    // --- LÓGICA DE AUDITORÍA Y CONVERSIÓN (Igual que antes) ---
 
     private void verificarEIniciar(boolean esAuditoria) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
