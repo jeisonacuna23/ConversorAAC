@@ -38,7 +38,6 @@ public class RecordingService extends Service {
     private static final String CHANNEL_ID = "GrabacionChannel";
     private static final int NOTIFICATION_ID = 1;
 
-    // Variables estáticas para saber el estado desde la pantalla principal
     public static boolean isRunning = false;
     public static String currentName = "";
     public static String currentTime = "00:00";
@@ -60,7 +59,7 @@ public class RecordingService extends Service {
             seconds = seconds % 60;
             String timeStr = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
 
-            currentTime = timeStr; // Guardar tiempo para la UI
+            currentTime = timeStr;
 
             updateNotification(timeStr);
 
@@ -104,7 +103,7 @@ public class RecordingService extends Service {
             recorder.start();
 
             isRecording = true;
-            isRunning = true;       // <-- Indicar que está corriendo
+            isRunning = true;
             currentName = nombreGrabacion;
             currentTime = "00:00";
 
@@ -118,7 +117,7 @@ public class RecordingService extends Service {
 
     private void detenerGrabacionYProcesar() {
         isRecording = false;
-        isRunning = false; // <-- Indicar que ya no está corriendo
+        isRunning = false;
         handler.removeCallbacks(timerRunnable);
 
         try {
@@ -171,6 +170,8 @@ public class RecordingService extends Service {
                     CHANNEL_ID, "Grabación en curso",
                     NotificationManager.IMPORTANCE_LOW
             );
+            // Forzar visibilidad en pantalla de bloqueo para el canal
+            serviceChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(serviceChannel);
         }
@@ -179,21 +180,26 @@ public class RecordingService extends Service {
     private Notification buildNotification(String time) {
         Intent stopIntent = new Intent(this, RecordingService.class);
         stopIntent.setAction(ACTION_STOP);
-        PendingIntent stopPendingIntent = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent stopPendingIntent = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Intent openAppIntent = new Intent(this, MainActivity.class);
         openAppIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openAppPendingIntent = PendingIntent.getActivity(this, 0, openAppIntent, PendingIntent.FLAG_IMMUTABLE);
 
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Grabando: " + nombreGrabacion)
                 .setContentText("Tiempo: " + time)
                 .setSmallIcon(R.drawable.ic_fa_mic)
                 .setContentIntent(openAppPendingIntent)
-                .addAction(R.drawable.ic_fa_stop, "Detener", stopPendingIntent) // Icono de stop
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Visible en pantalla de bloqueo
+                .addAction(R.drawable.ic_fa_stop, "Detener", stopPendingIntent)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Visible en bloqueo
                 .setOngoing(true)
-                .build();
+                .setPriority(NotificationCompat.PRIORITY_LOW); // Prioridad baja pero con acciones
+
+        // Forzar que la notificación se muestre expandida para que el botón sea visible
+        builder.setStyle(new NotificationCompat.BigTextStyle().bigText("Tiempo: " + time + " - Pulsa Detener para finalizar."));
+
+        return builder.build();
     }
 
     private void updateNotification(String time) {
