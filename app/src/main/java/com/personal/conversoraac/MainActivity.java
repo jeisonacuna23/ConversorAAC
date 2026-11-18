@@ -8,13 +8,18 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
+import android.view.animation.AnimationUtils;
+import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -25,6 +30,7 @@ import com.arthenica.ffmpegkit.MediaInformation;
 import com.arthenica.ffmpegkit.ReturnCode;
 import com.arthenica.ffmpegkit.StreamInformation;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import java.io.File;
@@ -39,14 +45,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MainActivity extends AppCompatActivity {
 
     private MaterialButton btnConvertir, btnAuditar, btnGrabar;
-    private TextView tvLog;
+    private TextView tvLog, tvTimer, tvRecordingName;
     private ScrollView scrollView;
     private LinearProgressIndicator progressBar;
+    private MaterialCardView recordingPanel;
+    private View recordingDot;
     private final String CARPETA = "A Voz en Cuello";
 
     private MediaRecorder recorder;
     private File archivoTemporal;
+    private String nombreGrabacionFinal;
     private boolean estaGrabando = false;
+
+    private Handler timerHandler = new Handler(Looper.getMainLooper());
+    private long tiempoInicioGrabacion = 0;
+    private Runnable timerRunnable = new Runnable() {
+        @Override
+        public void run() {
+            long millis = System.currentTimeMillis() - tiempoInicioGrabacion;
+            int seconds = (int) (millis / 1000);
+            int minutes = seconds / 60;
+            seconds = seconds % 60;
+            tvTimer.setText(String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds));
+            timerHandler.postDelayed(this, 500);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,6 +82,10 @@ public class MainActivity extends AppCompatActivity {
         tvLog = findViewById(R.id.tvLog);
         scrollView = findViewById(R.id.scrollView);
         progressBar = findViewById(R.id.progressBar);
+        recordingPanel = findViewById(R.id.recordingPanel);
+        tvTimer = findViewById(R.id.tvTimer);
+        tvRecordingName = findViewById(R.id.tvRecordingName);
+        recordingDot = findViewById(R.id.recordingDot);
 
         btnConvertir.setOnClickListener(v -> verificarEIniciar(false));
         btnAuditar.setOnClickListener(v -> verificarEIniciar(true));
@@ -73,14 +100,34 @@ public class MainActivity extends AppCompatActivity {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, 101);
                 return;
             }
-            iniciarGrabacion();
+            mostrarDialogoNombre();
         } else {
             detenerGrabacion();
         }
     }
 
+    private void mostrarDialogoNombre() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Nombre de la grabación");
+        
+        final EditText input = new EditText(this);
+        String defaultName = "Grabacion_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        input.setText(defaultName);
+        input.setSelection(defaultName.length());
+        builder.setView(input);
+
+        builder.setPositiveButton("Grabar", (dialog, which) -> {
+            String name = input.getText().toString().trim();
+            if (name.isEmpty()) name = defaultName;
+            // Limpiamos el nombre para evitar caracteres inválidos en archivos
+            nombreGrabacionFinal = name.replaceAll("[^a-zA-Z0-9_\\-\\s]", "");
+            iniciarGrabacion();
+        });
+        builder.setNegativeButton("Cancelar", null);
+        builder.show();
+    }
+
     private void iniciarGrabacion() {
-        // Guardamos un temporal en la memoria interna de la app
         archivoTemporal = new File(getCacheDir(), "temp_grabacion.m4a");
 
         recorder = new MediaRecorder();
@@ -88,9 +135,9 @@ public class MainActivity extends AppCompatActivity {
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            recorder.setAudioSamplingRate(44100); // Forzamos 44.1 kHz
-            recorder.setAudioChannels(2); // Forzamos estéreo
-            recorder.setAudioEncodingBitRate(128000); // Grabamos a 128k para no perder calidad, luego FFmpeg lo baja a 64k
+            recorder.setAudioSamplingRate(44100);
+            recorder.setAudioChannels(2);
+            recorder.setAudioEncodingBitRate(128000);
             recorder.setOutputFile(archivoTemporal.getAbsolutePath());
             
             recorder.prepare();
@@ -98,12 +145,23 @@ public class MainActivity extends AppCompatActivity {
             
             estaGrabando = true;
             btnGrabar.setText("Detener Grabación");
-            btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, android.R.color.black));
+            btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_stop));
+            btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroYellow));
+            btnGrabar.setTextColor(ContextCompat.getColor(this, R.color.retroBrown));
+            
             btnConvertir.setEnabled(false);
             btnAuditar.setEnabled(false);
-            actualizarLog("🎙 Grabando audio...");
+            
+            recordingPanel.setVisibility(View.VISIBLE);
+            tvRecordingName.setText(nombreGrabacionFinal);
+            recordingDot.startAnimation(AnimationUtils.loadAnimation(this, R.anim.pulse));
+            
+            tiempoInicioGrabacion = System.currentTimeMillis();
+            timerHandler.postDelayed(timerRunnable, 0);
+            
+            actualizarLog("[REC] Grabando: " + nombreGrabacionFinal);
         } catch (IOException | IllegalStateException e) {
-            actualizarLog("❌ Error al iniciar grabador: " + e.getMessage());
+            actualizarLog("[ERROR] Error al iniciar grabador: " + e.getMessage());
         }
     }
 
@@ -114,17 +172,23 @@ public class MainActivity extends AppCompatActivity {
             recorder = null;
             estaGrabando = false;
             
+            timerHandler.removeCallbacks(timerRunnable);
+            recordingDot.clearAnimation();
+            recordingPanel.setVisibility(View.GONE);
+            
             btnGrabar.setText("Iniciar Grabación");
-            btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, android.R.color.holo_red_dark));
+            btnGrabar.setIcon(ContextCompat.getDrawable(this, R.drawable.ic_fa_mic));
+            btnGrabar.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.retroBrown));
+            btnGrabar.setTextColor(ContextCompat.getColor(this, R.color.retroYellow));
+            
             btnConvertir.setEnabled(true);
             btnAuditar.setEnabled(true);
-            actualizarLog("⏹ Grabación detenida. Procesando formato de radio...");
+            actualizarLog("[STOP] Grabación detenida. Procesando formato de radio...");
             
-            // Procesar el audio en un hilo secundario
             new Thread(this::procesarGrabacion).start();
             
         } catch (RuntimeException e) {
-            actualizarLog("❌ Error al detener grabación: " + e.getMessage());
+            actualizarLog("[ERROR] Error al detener grabación: " + e.getMessage());
             estaGrabando = false;
             btnGrabar.setText("Iniciar Grabación");
         }
@@ -134,13 +198,10 @@ public class MainActivity extends AppCompatActivity {
         File dir = new File(Environment.getExternalStorageDirectory(), CARPETA);
         if (!dir.exists()) dir.mkdirs();
 
-        // Nombre del archivo final basado en la fecha y hora
-        String fecha = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-        File archivoFinal = new File(dir, "Grabacion_" + fecha + ".aac");
+        File archivoFinal = new File(dir, nombreGrabacionFinal + ".aac");
 
         runOnUiThread(() -> progressBar.setVisibility(View.VISIBLE));
 
-        // COMANDO FFMPEG: Recibe el .m4a temporal y lo convierte a .aac (ADTS) 64 kbps 44.1 kHz
         String cmd = "-y -i \"" + archivoTemporal.getAbsolutePath() + "\" " +
                      "-vn -c:a aac -profile:a aac_low " +
                      "-b:a 64k -minrate 64k -maxrate 64k -bufsize 128k " +
@@ -150,18 +211,17 @@ public class MainActivity extends AppCompatActivity {
         CountDownLatch latch = new CountDownLatch(1);
 
         FFmpegKit.executeAsync(cmd, session -> {
-            ReturnCode rc = session.getReturnCode();
-            exito.set(ReturnCode.isSuccess(rc));
+            exito.set(ReturnCode.isSuccess(session.getReturnCode()));
             latch.countDown();
         }, log -> {}, statistics -> {});
 
         try { latch.await(); } catch (InterruptedException ignored) {}
 
         if (exito.get() && archivoFinal.exists() && archivoFinal.length() > 0) {
-            actualizarLog("✅ ¡Grabación lista!\nGuardada como: " + archivoFinal.getName());
-            archivoTemporal.delete(); // Borramos el temporal
+            actualizarLog("[OK] Grabación lista y guardada como: " + archivoFinal.getName());
+            archivoTemporal.delete();
         } else {
-            actualizarLog("❌ Error al convertir la grabación.");
+            actualizarLog("[ERROR] Error al convertir la grabación.");
         }
         
         runOnUiThread(() -> progressBar.setVisibility(View.INVISIBLE));
@@ -171,13 +231,13 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 101 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            iniciarGrabacion();
+            mostrarDialogoNombre();
         } else {
             Toast.makeText(this, "Se necesita permiso de micrófono para grabar", Toast.LENGTH_SHORT).show();
         }
     }
 
-    // --- LÓGICA DE AUDITORÍA Y CONVERSIÓN (Ya existente) ---
+    // --- LÓGICA DE AUDITORÍA Y CONVERSIÓN ---
 
     private void verificarEIniciar(boolean esAuditoria) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {

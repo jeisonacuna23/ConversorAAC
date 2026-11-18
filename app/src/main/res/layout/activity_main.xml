@@ -25,7 +25,56 @@
         android:gravity="center"
         android:layout_marginBottom="16dp"/>
 
-    <!-- Botón de Grabación (NUEVO) -->
+    <!-- Panel de Grabación (Oculto por defecto) -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/recordingPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardCornerRadius="12dp"
+        app:cardBackgroundColor="@color/retroBrown"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            android:gravity="center_vertical">
+
+            <View
+                android:id="@+id/recordingDot"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:background="@drawable/ic_fa_stop"
+                android:backgroundTint="#D32F2F"
+                android:layout_marginEnd="16dp"/>
+
+            <TextView
+                android:id="@+id/tvTimer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00"
+                android:textSize="24sp"
+                android:fontFamily="@font/vt323"
+                android:textColor="@color/retroYellow"
+                android:layout_marginEnd="16dp"/>
+
+            <TextView
+                android:id="@+id/tvRecordingName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Grabando..."
+                android:textSize="18sp"
+                android:fontFamily="@font/vt323"
+                android:textColor="@color/retroLight"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Botón de Grabación -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnGrabar"
         android:layout_width="match_parent"
@@ -33,12 +82,12 @@
         android:text="Iniciar Grabación"
         android:fontFamily="@font/vt323"
         android:textSize="22sp"
-        app:icon="@android:drawable/ic_btn_speak_now"
+        app:icon="@drawable/ic_fa_mic"
         app:iconGravity="textStart"
         app:cornerRadius="12dp"
         android:layout_marginBottom="16dp"
-        app:backgroundTint="#D32F2F"
-        android:textColor="#FFFFFF"/>
+        app:backgroundTint="@color/retroBrown"
+        android:textColor="@color/retroYellow"/>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -54,6 +103,8 @@
             android:text="Auditar"
             android:fontFamily="@font/vt323"
             android:textSize="18sp"
+            app:icon="@drawable/ic_fa_search"
+            app:iconGravity="textStart"
             app:cornerRadius="12dp"
             android:layout_marginEnd="8dp"
             app:backgroundTint="@color/retroBrown"
@@ -67,6 +118,8 @@
             android:text="Convertir"
             android:fontFamily="@font/vt323"
             android:textSize="18sp"
+            app:icon="@drawable/ic_fa_play"
+            app:iconGravity="textStart"
             app:cornerRadius="12dp"
             android:layout_marginStart="8dp"
             app:backgroundTint="@color/retroYellow"
